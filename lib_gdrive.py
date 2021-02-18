@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 #########################################################
 # python
+from __future__ import print_function
+
 import os, sys, traceback, re, json, threading, time, shutil
 from datetime import datetime, timedelta
 # third-party
@@ -30,6 +32,19 @@ except:
     os.system("{} install googleapiclient".format(app.config['config']['pip']))
     from googleapiclient.discovery import build
 
+try:
+    import pickle
+    from googleapiclient.discovery import build
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+except:
+    os.system("{} install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib".format(app.config['config']['pip']))
+    import pickle
+    from googleapiclient.discovery import build
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+
+
 # anytree
 try:
     from anytree import Node, PreOrderIter
@@ -45,16 +60,61 @@ logger = P.logger
 #########################################################
 
 class LibGdrive(object):
+    scope = ['https://www.googleapis.com/auth/drive']
     service     = None
+    sa_service  = None
     json_list   = []
+    current_flow = None
 
     @classmethod
-    def authorize(cls, json_path):
+    def auth_step1(cls, credentials='credentials.json', token='token.pickle',):
+        flow = InstalledAppFlow.from_client_secrets_file(credentials, cls.scope, redirect_uri='urn:ietf:wg:oauth:2.0:oob')
+        cls.current_flow = flow
+        return flow.authorization_url()
+
+    @classmethod
+    def auth_step2(cls, code, token='token.pickle',):
+        try:
+            cls.current_flow.fetch_token(code=code)
+            creds = cls.current_flow.credentials
+            with open(token, 'wb') as t:
+                pickle.dump(creds, t)
+
+            cls.service = build('drive', 'v3', credentials=creds)
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return False
+
+    @classmethod
+    def user_authorize(cls, token='token.pickle',):
+        try:
+            if os.path.exists(token):
+                with open(token, 'rb') as tokenfile:
+                    creds = pickle.load(tokenfile)
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else: return False
+    
+                with open(token, 'wb') as t:
+                    pickle.dump(creds, t)
+    
+            cls.service = build('drive', 'v3', credentials=creds)
+            return True
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return False
+
+    @classmethod
+    def sa_authorize(cls, json_path):
         if not os.path.exists(json_path):
             logger.error('can not recognize gdrive_auth_path(%s)', json_path)
             data = {'type':'warning', 'msg':'인증파일(.json) 경로를 확인해주세요.'}
             socketio.emit('notify', data, namespace='/framework', broadcast=True)
-            return
+            return False
 
         if os.path.isdir(json_path):
             cls.json_list = cls.get_all_jsonfiles(json_path)
@@ -66,13 +126,14 @@ class LibGdrive(object):
 
         logger.debug('json_file: %s', json_file)
 
-        scope = ['https://www.googleapis.com/auth/drive']
         try:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, scope)
-            cls.service = build('drive', 'v3', credentials=credentials)
+            credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, cls.scope)
+            cls.sa_service = build('drive', 'v3', credentials=credentials)
+            return True
         except Exception as e: 
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
+            return False
 
     @classmethod
     def switch_service_account(cls):
@@ -80,9 +141,9 @@ class LibGdrive(object):
             try:
                 scope = ['https://www.googleapis.com/auth/drive']
                 json_file = ''.join(random.sample(cls.json_list, 1))
-                credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, scope)
-                cls.service = build('drive', 'v3', credentials=credentials)
-                return cls.service
+                credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, cls.scope)
+                cls.sa_service = build('drive', 'v3', credentials=credentials)
+                return cls.sa_service
             except Exception as e: 
                 logger.error('Exception:%s', e)
                 logger.error(traceback.format_exc())
@@ -102,9 +163,11 @@ class LibGdrive(object):
                 },
                 'parents': [parent_folder_id]
             }
-            shortcut = cls.service.files().create(body=shortcut_metadata, 
+            shortcut = cls.sa_service.files().create(body=shortcut_metadata, 
                     fields='id,shortcutDetails').execute()
 
+            #logger.debug(json.dumps(shortcut, indent=2))
+            logger.debug('create_shortcut: shortcut_created: %s', shortcut_name)
             ret['ret'] = 'success'
             ret['data'] = shortcut
             return ret
@@ -127,13 +190,17 @@ class LibGdrive(object):
         return file_list
 
     @classmethod
-    def get_file_info(cls, folder_id):
+    def get_file_info(cls, folder_id, fields=None):
         try:
             ret = {}
-            info = cls.service.files().get(fileId=folder_id, fields='id, name, mimeType, parents').execute()
-            data = {'id':info['id'], 'mimeType':info['mimeType'], 'name':info['name'], 'parent':info['parents'][0]}
+            data = {}
+            str_fields = 'id, name, mimeType, parents'
+            if fields != None: str_fields = ",".join(fields)
+            info = cls.sa_service.files().get(fileId=folder_id, fields=str_fields).execute()
+            for field in str_fields.split(','): data[field] = info.get(field)
             ret['ret'] = 'success'
             ret['data'] = data
+            logger.debug('get_file_info: id(%s)', folder_id)
             return ret
         except Exception as e:
             logger.debug('Exception:%s', e)
@@ -144,48 +211,88 @@ class LibGdrive(object):
 
     @classmethod
     def get_gdrive_full_path(cls, folder_id):
-        pathes = []
-        parent_id = folder_id
-        while True:
-            r = cls.service.files().get(fileId=parent_id, fields='id, name, mimeType, parents').execute()
-            if 'parents' in r:
-                parent_id = r['parents'][0]
-                pathes.append(r['name'])
-            else:
-                pathes.append(r['name'])
-                break
+        try:
+            pathes = []
+            parent_id = folder_id
+            while True:
+                r = cls.sa_service.files().get(fileId=parent_id, 
+                        fields='id, name, mimeType, parents').execute()
+                if 'parents' in r:
+                    parent_id = r['parents'][0]
+                    pathes.append(r['name'])
+                else:
+                    pathes.append(r['name'])
+                    break
+    
+            pathes.append('')
+            pathes.reverse()
+            full_path = u'/'.join(pathes)
+            logger.debug('get_gdrive_full_path: %s(%s)', full_path, folder_id)
+            return full_path
+        except Exception as e:
+            logger.debug('Exception:%s', e)
+            logger.debug(traceback.format_exc())
+            return None
 
-        pathes.append('')
-        pathes.reverse()
-        return u'/'.join(pathes)
+    @classmethod
+    def get_gdrive_full_path_except_me(cls, folder_id):
+        try:
+            pathes = []
+            parent_id = folder_id
+            while True:
+                r = cls.sa_service.files().get(fileId=parent_id, fields='id, name, mimeType, parents').execute()
+                if 'parents' in r:
+                    logger.debug('fodler_id: %s, parent_id: %s', folder_id, parent_id)
+                    parent_id = r['parents'][0]
+                    if parent_id != folder_id:
+                        pathes.append(r['name'])
+                else:
+                    pathes.append(r['name'])
+                    break
+    
+            pathes.append('')
+            pathes.reverse()
+            full_path = u'/'.join(pathes)
+            logger.debug('get_gdrive_full_path_except_me: %s(%s)', full_path, folder_id)
+            return full_path
+        except Exception as e:
+            logger.debug('Exception:%s', e)
+            logger.debug(traceback.format_exc())
+            return None
 
     @classmethod
     def get_all_folders_in_folder(cls, root_folder_id, last_searched_time):
-        child_folders = {}
-        page_token = None
-        if last_searched_time == None:
-            query = "mimeType='application/vnd.google-apps.folder' \
-                    and '{r}' in parents".format(r=root_folder_id)
-        else:
-            time_str = last_searched_time.strftime('%Y-%m-%dT%H:%M:%S+09:00')
-            query = "mimeType='application/vnd.google-apps.folder' \
-                    and '{r}' in parents and modifiedTime>'{t}'".format(r=root_folder_id, t=time_str)
-
-        while True:
-            response = cls.service.files().list(q=query,
-                    spaces='drive',
-                    pageSize=1000,
-                    fields='nextPageToken, files(id, name, parents, modifiedTime)',
-                    pageToken=page_token).execute()
+        try:
+            child_folders = {}
+            page_token = None
+            if last_searched_time == None:
+                query = "mimeType='application/vnd.google-apps.folder' \
+                        and '{r}' in parents".format(r=root_folder_id)
+            else:
+                time_str = last_searched_time.strftime('%Y-%m-%dT%H:%M:%S+09:00')
+                query = "mimeType='application/vnd.google-apps.folder' \
+                        and '{r}' in parents and modifiedTime>'{t}'".format(r=root_folder_id, t=time_str)
     
-            folders = response.get('files', [])
-            page_token = response.get('nextPageToken', None)
-
-            for folder in folders:
-                child_folders[folder['id']] = folder['parents'][0]
-            if page_token is None: break
+            while True:
+                r = cls.sa_service.files().list(q=query,
+                        spaces='drive',
+                        pageSize=1000,
+                        fields='nextPageToken, files(id, name, parents, modifiedTime)',
+                        pageToken=page_token).execute()
+        
+                folders = r.get('files', [])
+                page_token = r.get('nextPageToken', None)
     
-        return child_folders
+                for folder in folders:
+                    child_folders[folder['id']] = folder['parents'][0]
+                if page_token == None: break
+        
+            logger.debug('get_all_folders_in_folder: %d items found', len(child_folders))
+            return child_folders
+        except Exception as e:
+            logger.debug('Exception:%s', e)
+            logger.debug(traceback.format_exc())
+            return None
 
     @classmethod
     def get_subfolders_of_folder(cls, folder_to_search, all_folders):
@@ -197,11 +304,43 @@ class LibGdrive(object):
 
     @classmethod
     def get_all_folders(cls, root_folder_id, last_searched_time):
-        all_folders = cls, LogicGdrive.get_all_folders_in_folder(root_folder_id, last_searched_time)
+        all_folders = cls.get_all_folders_in_folder(root_folder_id, last_searched_time)
         target_folder_list = []
-        for folder in LogicGdrive.get_subfolders_of_folder(root_folder_id, all_folders):
+        for folder in cls.get_subfolders_of_folder(root_folder_id, all_folders):
             target_folder_list.append(folder)
         return target_folder_list
+
+    @classmethod
+    def get_children(cls, target_folder_id, fields=None):
+        children = []
+        try:
+            page_token = None
+            query = "'{}' in parents".format(target_folder_id)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+            while True:
+                try:
+                    r = cls.sa_service.files().list(q=query, 
+                            spaces='drive',
+                            pageSize=1000,
+                            fields=str_fields,
+                            pageToken=page_token).execute()
+                
+                    page_token = r.get('nextPageToken', None)
+                    for child in r.get('files', []): children.append(child)
+                    if page_token == None: break
+                except:
+                    cls.sa_service = cls.switch_service_account()
+                    if cls.sa_service == None:
+                        return None
+
+            logger.debug('get_children: %d items found', len(children))
+            return children
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
 
     @classmethod
     def get_children_folders(cls, target_folder_id):
@@ -213,7 +352,7 @@ class LibGdrive(object):
 
             while True:
                 try:
-                    r = cls.service.files().list(q=query, 
+                    r = cls.sa_service.files().list(q=query, 
                             spaces='drive',
                             pageSize=1000,
                             fields='nextPageToken, files(id, name, parents, mimeType)',
@@ -221,12 +360,13 @@ class LibGdrive(object):
                 
                     page_token = r.get('nextPageToken', None)
                     for child in r.get('files', []): children.append(child)
-                    if page_token is None: break
+                    if page_token == None: break
                 except:
-                    cls.service = LogicGdrive.switch_service_account()
-                    if cls.service == None:
+                    cls.sa_service = cls.switch_service_account()
+                    if cls.sa_service == None:
                         return None
 
+            logger.debug('get_children_folders: %d items found', len(children))
             return children
 
         except Exception as e:
@@ -254,7 +394,7 @@ class LibGdrive(object):
 
             while True:
                 try:
-                    r = cls.service.files().list(q=query, 
+                    r = cls.sa_service.files().list(q=query, 
                             spaces='drive',
                             pageSize=1000,
                             fields='nextPageToken, files(id, name, parents, mimeType)',
@@ -265,15 +405,17 @@ class LibGdrive(object):
                     page_token = r.get('nextPageToken', None)
                     if page_token == None: break
                 except:
-                    cls.service = cls.switch_service_account()
-                    if cls.service == None:
+                    cls.sa_service = cls.switch_service_account()
+                    if cls.sa_service == None:
                         return None
 
+            logger.debug('get_children_video_files: %d items found', len(children))
             return children
 
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
+            return None
 
     @classmethod
     def populate_tree(cls, parent, parent_id, depth):
@@ -284,20 +426,23 @@ class LibGdrive(object):
                 for child in children:
                     node = Node(child['name'], parent=parent, id=child['id'], parent_id=parent_id, mime_type=child['mimeType'])
                     children_nodes.append(node)
-                    logger.debug('add-tree:{},{},{}'.format(node.name, node.parent_id, node.id))
 
             if depth-1 == 0: return
             for node in children_nodes:
-                LogicGdrive.populate_tree(node, node.id, depth-1)
+                cls.populate_tree(node, node.id, depth-1)
 
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
+            return None
 
     @classmethod
     def get_all_subfolders(cls, root_folder_id, name=None, max_depth=1):
         try:
-            if name == None: name = cls.get_file_info(root_folder_id)['name']
+            root_folder_info = cls.get_file_info(root_folder_id)
+            path_of_root = cls.get_gdrive_full_path_except_me(root_folder_id)
+
+            if name == None: name = root_info['name']
             root = Node(name, id=root_folder_id)
             cls.populate_tree(root, root_folder_id, max_depth)
 
@@ -308,9 +453,106 @@ class LibGdrive(object):
                 folder['folder_id'] = node.id
                 folder['parent_folder_id'] = node.parent_id
                 folder['mime_type'] = node.mime_type
+                folder['full_path'] = path_of_root + '/' + '/'.join([x.name for x in list(node.path)])
+                logger.debug('add to list: %s,%s,%s', node.name, node.id, node.mime_type)
                 folder_list.append(folder)
 
+            logger.debug('get_all_subfolders: %d items found', len(folder_list))
             return folder_list
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
+    def create_sub_folder(cls, subfolders, parent_folder_id):
+        #TODO
+        try:
+            ret = {}
+            data = []
+            parent_id = parent_folder_id
+            for folder in subfolders.split('/'):
+                meta = {
+                    'name': folder,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [parent_id]
+                }
+                newfolder = cls.sa_service.files().create(body=meta, fields='id').execute()
+                data.append({'name':folder, 'folder_id':newfolder.get('id'), 'parent_folder_id':parent_id })
+                parent_id = newfolder.get('id')
+
+            ret['ret'] = 'success'
+            ret['data'] = data
+            return ret
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error', 'msg':str(e)}
+
+    @classmethod
+    def delete_file(cls, file_id):
+        try:
+            ret = {}
+            data = []
+            cls.service.files().delete(fileId=file_id).execute()
+            ret['ret'] = 'success'
+            return ret
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def move_file(cls, file_id, old_parent_id, new_parent_id):
+        try:
+            ret = {}
+            res = cls.service.files().update(fileId=file_id, 
+                    addParents=new_parent_id, 
+                    removeParents=old_parent_id, 
+                    fields='id,parents').execute()
+            ret['ret'] = 'success'
+            data = {'folder_id':res.get('id'), 'parent_folder_id':res.get('parents')[0]}
+            ret['data'] = data
+            return ret
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def search_teamdrive_by_keyword(cls, keyword, teamdrive_id, fields=None):
+        try: 
+            result = []
+            page_token = None
+            query = u'name contains "{}"'.format(keyword)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+
+            while True:
+                try:
+                    r = cls.sa_service.files().list(q=query, 
+                            fields=str_fields,
+                            corpora='drive', 
+                            pageSize=100,
+                            includeTeamDriveItems=True, 
+                            supportsAllDrives=True, 
+                            supportsTeamDrives=True, 
+                            teamDriveId=teamdrive_id,
+                            pageToken=page_token).execute()
+
+                    page_token = r.get('nextPageToken', None)
+                    for item in r.get('files', []): result.append(item)
+                    if page_token == None: break
+                except:
+                    cls.sa_service = cls.switch_service_account()
+                    if cls.sa_service == None:
+                        return None
+
+            logger.debug('search_teamdrive_by_keyword: %d items found', len(result))
+            return {'ret':'success', 'data':result}
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
