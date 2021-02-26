@@ -447,7 +447,7 @@ class LibGdrive(object):
                     logger.error(traceback.format_exc())
                     return None
     
-            logger.debug('get_children_folders: %d items found', len(children))
+            logger.debug('get_children_folders(%s): %d items found', target_folder_id, len(children))
             return children
 
         except Exception as e:
