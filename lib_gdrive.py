@@ -581,6 +581,7 @@ class LibGdrive(object):
 
             folder_list = []
             for node in PreOrderIter(root, filter_=lambda n:n.height == 0):
+                if node == root: break
                 folder = {}
                 folder['name'] = node.name
                 folder['folder_id'] = node.id
@@ -608,6 +609,7 @@ class LibGdrive(object):
 
             folder_list = []
             for node in PreOrderIter(root, filter_=lambda n:n.height == 0):
+                if node == root: break
                 folder = {}
                 folder['name'] = node.name
                 folder['folder_id'] = node.id
