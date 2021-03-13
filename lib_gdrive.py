@@ -61,6 +61,7 @@ logger = P.logger
 
 class LibGdrive(object):
     scope = ['https://www.googleapis.com/auth/drive']
+    token_uri = 'https://www.googleapis.com/oauth2/v3/token'
     service     = None
     sa_service  = None
     json_list   = []
@@ -107,7 +108,7 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return False
-
+    
     @classmethod
     def sa_authorize(cls, json_path, return_service=False):
         if not os.path.exists(json_path):
@@ -170,6 +171,34 @@ class LibGdrive(object):
             logger.error(traceback.format_exc())
             return None
 
+    @classmethod
+    def auth_by_rclone_remote(cls, remote):
+        try:
+            try:
+                from google.oauth2.credentials import Credentials as OAuth2Credentials
+            except ImportError:
+                os.system("{} install google-oauth".format(app.config['config']['pip']))
+                from google.oauth2.credentials import Credentials as OAuth2Credentials
+
+            client_id = remote['client_id']
+            client_secret = remote['client_secret']
+            rjson = json.loads(remote['token'])
+            token = rjson['access_token']
+            refresh_token = rjson['refresh_token']
+            creds = OAuth2Credentials(token,
+                    refresh_token=refresh_token,
+                    id_token=None,
+                    token_uri=cls.token_uri,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=cls.scope)
+            service = build('drive', 'v3', credentials=creds)
+            return service
+
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
     @classmethod
     def switch_service_account(cls, service=None):
         while True:
@@ -245,6 +274,31 @@ class LibGdrive(object):
             ret['ret'] = 'success'
             ret['data'] = data
             logger.debug('get_file_info: id(%s)', folder_id)
+            return ret
+        except Exception as e:
+            logger.debug('Exception:%s', e)
+            logger.debug(traceback.format_exc())
+            ret['ret'] = 'exception'
+            ret['data'] = str(e)
+
+    @classmethod
+    def get_file_info_with_name_parent(cls, name, parent_id, service=None):
+        try:
+            ret = {}
+            data = {}
+            str_fields = 'id, name, mimeType, parents'
+            if service == None: service = cls.sa_service
+
+            query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and '{}' in parents".format(name, parent_id)
+            r = service.files().list(q=query).execute()
+            for item in r.get('files', []):
+                data['id'] = item.get('id')
+                data['name'] = item.get('name')
+                data['mimeType'] = item.get('mimeType')
+                data['parents'] = item.get('parents')
+                break
+            ret['ret'] = 'success'
+            ret['data'] = data
             return ret
         except Exception as e:
             logger.debug('Exception:%s', e)
@@ -655,13 +709,19 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
-    def move_file(cls, file_id, old_parent_id, new_parent_id):
+    def move_file(cls, file_id, old_parent_id, new_parent_id, service=None):
         try:
             ret = {}
-            res = cls.service.files().update(fileId=file_id, 
-                    addParents=new_parent_id, 
-                    removeParents=old_parent_id, 
-                    fields='id,parents').execute()
+            if service != None:
+                res = service.files().update(fileId=file_id, 
+                        addParents=new_parent_id, 
+                        removeParents=old_parent_id, 
+                        fields='id,parents').execute()
+            else:
+                res = cls.service.files().update(fileId=file_id, 
+                        addParents=new_parent_id, 
+                        removeParents=old_parent_id, 
+                        fields='id,parents').execute()
             ret['ret'] = 'success'
             data = {'folder_id':res.get('id'), 'parent_folder_id':res.get('parents')[0]}
             ret['data'] = data
@@ -718,3 +778,34 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def get_folder_id_by_path(cls, remote_path, service=None):
+        try: 
+            if service != None: svc = service
+            else: svc = cls.service
+            parent_id = None
+            if remote_path.find(':/') != -1:
+                remote_name, path_str = remote_path.split(':/')
+                folders = path_str.split('/')
+            else:
+                folders = remote_path.split('/')
+            folders = list(filter(None,folders))
+
+            for dname in folders:
+                if parent_id == None: query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and 'root' in parents".format(dname)
+                else: query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and '{}' in parents".format(dname, parent_id)
+                r = svc.files().list(q=query).execute()
+                #logger.debug(r)
+                logger.debug(r.get('files'))
+                for item in r.get('files', []):
+                    logger.debug('getget_id:%s', item.get('id'))
+                    parent_id = item.get('id')
+                    break
+            
+            return parent_id
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
