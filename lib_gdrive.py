@@ -280,6 +280,7 @@ class LibGdrive(object):
             logger.debug(traceback.format_exc())
             ret['ret'] = 'exception'
             ret['data'] = str(e)
+            return ret
 
     @classmethod
     def get_file_info_with_name_parent(cls, name, parent_id, service=None):
@@ -305,6 +306,7 @@ class LibGdrive(object):
             logger.debug(traceback.format_exc())
             ret['ret'] = 'exception'
             ret['data'] = str(e)
+            return ret
 
 
     @classmethod
@@ -679,12 +681,15 @@ class LibGdrive(object):
 
 
     @classmethod
-    def create_sub_folder(cls, name, parent_folder_id):
+    def create_sub_folder(cls, name, parent_folder_id, service=None):
         try:
             ret = {}
             parent_id = parent_folder_id
             meta = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
-            newfolder = cls.service.files().create(body=meta, fields='id').execute()
+            if service != None:
+                newfolder = service.files().create(body=meta, fields='id').execute()
+            else:
+                newfolder = cls.service.files().create(body=meta, fields='id').execute()
             data = {'name':name, 'folder_id':newfolder.get('id'), 'parent_folder_id':parent_id}
             ret['ret'] = 'success'
             ret['data'] = data
@@ -696,11 +701,12 @@ class LibGdrive(object):
             return {'ret':'error', 'msg':str(e)}
 
     @classmethod
-    def delete_file(cls, file_id):
+    def delete_file(cls, file_id, service=None):
         try:
             ret = {}
             data = []
-            cls.service.files().delete(fileId=file_id).execute()
+            if service != None: service.files().delete(fileId=file_id).execute()
+            else: cls.service.files().delete(fileId=file_id).execute()
             ret['ret'] = 'success'
             return ret
         except Exception as e:
@@ -709,16 +715,20 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
-    def move_file(cls, file_id, old_parent_id, new_parent_id, service=None):
+    def move_file(cls, file_id, old_parent_id, new_parent_id, service=None, newname=None):
         try:
             ret = {}
-            if service != None:
+            body = None
+            if newname != None: body = {'name':newname}
+            if service == None: service = cls.service
+            if body != None:
                 res = service.files().update(fileId=file_id, 
                         addParents=new_parent_id, 
                         removeParents=old_parent_id, 
+                        body=body,
                         fields='id,parents').execute()
             else:
-                res = cls.service.files().update(fileId=file_id, 
+                res = service.files().update(fileId=file_id, 
                         addParents=new_parent_id, 
                         removeParents=old_parent_id, 
                         fields='id,parents').execute()
@@ -809,3 +819,45 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return None
+
+    @classmethod
+    def is_folder_empty(cls, target_folder_id, service=None):
+        children = []
+        try:
+            page_token = None
+            if time_after == None:
+                query = "'{}' in parents".format(target_folder_id)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            while True:
+                try:
+                    if service != None:
+                        r = service.files().list(q=query, 
+                                spaces='drive',
+                                pageSize=1000,
+                                fields=str_fields,
+                                pageToken=page_token).execute()
+                    else:
+                        r = cls.sa_service.files().list(q=query, 
+                                spaces='drive',
+                                pageSize=1000,
+                                fields=str_fields,
+                                pageToken=page_token).execute()
+                
+                    page_token = r.get('nextPageToken', None)
+                    for child in r.get('files', []): children.append(child)
+                    if page_token == None: break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('is_folder_empty(%s): %d items found', target_folder_id, len(children))
+            if len(children) == 0: return True
+            return False
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+
