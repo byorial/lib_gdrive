@@ -266,7 +266,7 @@ class LibGdrive(object):
         try:
             ret = {}
             data = {}
-            str_fields = 'id, name, mimeType, parents'
+            str_fields = 'id, name, mimeType, parents, trashed'
             if fields != None: str_fields = ",".join(fields)
             if service != None: info = service.files().get(fileId=folder_id, fields=str_fields).execute()
             else: info = cls.sa_service.files().get(fileId=folder_id, fields=str_fields).execute()
@@ -827,7 +827,7 @@ class LibGdrive(object):
             page_token = None
             if time_after == None:
                 query = "'{}' in parents".format(target_folder_id)
-            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
             while True:
                 try:
                     if service != None:
@@ -853,7 +853,9 @@ class LibGdrive(object):
 
             logger.debug('is_folder_empty(%s): %d items found', target_folder_id, len(children))
             if len(children) == 0: return True
-            return False
+            for child in children:
+                if child['trashed'] == False: return False
+            return True
 
         except Exception as e:
             logger.error('Exception:%s', e)
