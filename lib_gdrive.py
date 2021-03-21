@@ -486,13 +486,13 @@ class LibGdrive(object):
                         r = service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
-                                fields='nextPageToken, files(id, name, parents, mimeType)',
+                                fields='nextPageToken, files(id, name, parents, mimeType, trashed)',
                                 pageToken=page_token).execute()
                     else:
                         r = cls.sa_service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
-                                fields='nextPageToken, files(id, name, parents, mimeType)',
+                                fields='nextPageToken, files(id, name, parents, mimeType, trashed)',
                                 pageToken=page_token).execute()
                 
                     page_token = r.get('nextPageToken', None)
