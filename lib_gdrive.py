@@ -825,8 +825,7 @@ class LibGdrive(object):
         children = []
         try:
             page_token = None
-            if time_after == None:
-                query = "'{}' in parents".format(target_folder_id)
+            query = "'{}' in parents".format(target_folder_id)
             str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
             while True:
                 try:
