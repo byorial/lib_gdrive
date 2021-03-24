@@ -180,6 +180,10 @@ class LibGdrive(object):
                 os.system("{} install google-oauth".format(app.config['config']['pip']))
                 from google.oauth2.credentials import Credentials as OAuth2Credentials
 
+            # SA 
+            if 'service_account_file' in remote:
+                return cls.sa_authorize(remote['service_account_file_path'], return_service=True)
+
             client_id = remote['client_id']
             client_secret = remote['client_secret']
             rjson = json.loads(remote['token'])
@@ -262,12 +266,15 @@ class LibGdrive(object):
         return file_list
 
     @classmethod
-    def get_file_info(cls, folder_id, fields=None, service=None):
+    def get_file_info(cls, folder_id, fields=None, service=None, teamdrive_id=None):
         try:
             ret = {}
             data = {}
             str_fields = 'id, name, mimeType, parents, trashed'
             if fields != None: str_fields = ",".join(fields)
+            svc = service if service != None else cls.sa_service
+            if teamdrive_id != None:
+                info = service.files().get(fileId=folder_id, fields=str_fields).execute()
             if service != None: info = service.files().get(fileId=folder_id, fields=str_fields).execute()
             else: info = cls.sa_service.files().get(fileId=folder_id, fields=str_fields).execute()
             for field in str_fields.split(','): data[field.strip()] = info.get(field.strip())
@@ -790,10 +797,59 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
-    def get_folder_id_by_path(cls, remote_path, service=None):
+    def search_teamdrive_by_names(cls, names, teamdrive_id, mime_type='all',fields=None, service=None):
         try: 
-            if service != None: svc = service
-            else: svc = cls.service
+            result = []
+            page_token = None
+            if len(names) > 1: query = u'name="'+u'" or name="'.join(names) + u'"'
+            else: query = u'name = "{}"'.format(names[0])
+            if mime_type != 'all': query = query + ' and mimeType="{}"'.format(mime_type)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+
+            while True:
+                try:
+                    if service != None:
+                        r = service.files().list(q=query, 
+                                fields=str_fields,
+                                corpora='drive', 
+                                pageSize=100,
+                                includeTeamDriveItems=True, 
+                                supportsAllDrives=True, 
+                                supportsTeamDrives=True, 
+                                teamDriveId=teamdrive_id,
+                                pageToken=page_token).execute()
+                    else:
+                        r = cls.sa_service.files().list(q=query, 
+                                fields=str_fields,
+                                corpora='drive', 
+                                pageSize=100,
+                                includeTeamDriveItems=True, 
+                                supportsAllDrives=True, 
+                                supportsTeamDrives=True, 
+                                teamDriveId=teamdrive_id,
+                                pageToken=page_token).execute()
+
+                    page_token = r.get('nextPageToken', None)
+                    for item in r.get('files', []): result.append(item)
+                    if page_token == None: break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('search_teamdrive_by_name: %d items found', len(result))
+            return {'ret':'success', 'data':result}
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def get_folder_id_by_path(cls, remote_path, service=None, teamdrive_id=None):
+        try: 
+            svc = service if service != None else cls.service
             parent_id = None
             if remote_path.find(':/') != -1:
                 remote_name, path_str = remote_path.split(':/')
@@ -802,14 +858,23 @@ class LibGdrive(object):
                 folders = remote_path.split('/')
             folders = list(filter(None,folders))
 
+            root = 'root' if teamdrive_id == None else teamdrive_id
             for dname in folders:
-                if parent_id == None: query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and 'root' in parents".format(dname)
-                else: query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and '{}' in parents".format(dname, parent_id)
-                r = svc.files().list(q=query).execute()
+                if parent_id == None: query = u"mimeType='application/vnd.google-apps.folder' and trashed=False and name='{}' and '{}' in parents".format(dname, root)
+                else: query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and trashed=False and '{}' in parents".format(dname, parent_id)
+
+                if teamdrive_id != None:
+                    r = svc.files().list(q=query, 
+                            corpora='drive',
+                            includeTeamDriveItems=True,
+                            supportsTeamDrives=True,
+                            teamDriveId=teamdrive_id).execute()
+                else:
+                    r = svc.files().list(q=query).execute()
                 #logger.debug(r)
                 logger.debug(r.get('files'))
                 for item in r.get('files', []):
-                    logger.debug('getget_id:%s', item.get('id'))
+                    #logger.debug('getget_id:%s', item.get('id'))
                     parent_id = item.get('id')
                     break
             
