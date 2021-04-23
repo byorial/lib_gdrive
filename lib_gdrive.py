@@ -274,9 +274,9 @@ class LibGdrive(object):
             if fields != None: str_fields = ",".join(fields)
             svc = service if service != None else cls.sa_service
             if teamdrive_id != None:
-                info = service.files().get(fileId=folder_id, fields=str_fields).execute()
-            if service != None: info = service.files().get(fileId=folder_id, fields=str_fields).execute()
-            else: info = cls.sa_service.files().get(fileId=folder_id, fields=str_fields).execute()
+                info = service.files().get(fileId=folder_id, supportsAllDrives=True,fields=str_fields).execute()
+            if service != None: info = service.files().get(fileId=folder_id, supportsAllDrives=True,fields=str_fields).execute()
+            else: info = cls.sa_service.files().get(fileId=folder_id, supportsAllDrives=True,fields=str_fields).execute()
             for field in str_fields.split(','): data[field.strip()] = info.get(field.strip())
             ret['ret'] = 'success'
             ret['data'] = data
@@ -298,7 +298,7 @@ class LibGdrive(object):
             if service == None: service = cls.sa_service
 
             query = u"mimeType='application/vnd.google-apps.folder' and name='{}' and '{}' in parents".format(name, parent_id)
-            r = service.files().list(q=query).execute()
+            r = service.files().list(q=query, supportsAllDrives=True).execute()
             for item in r.get('files', []):
                 data['id'] = item.get('id')
                 data['name'] = item.get('name')
@@ -323,16 +323,19 @@ class LibGdrive(object):
             parent_id = folder_id
             while True:
                 if service != None:
-                    r = service.files().get(fileId=parent_id, 
+                    r = service.files().get(fileId=parent_id, supportsAllDrives=True,
                             fields='id, name, mimeType, parents').execute()
                 else:
-                    r = cls.sa_service.files().get(fileId=parent_id, 
+                    r = cls.sa_service.files().get(fileId=parent_id, supportsAllDrives=True,
                             fields='id, name, mimeType, parents').execute()
-
+                
+                #logger.debug(json.dumps(r, indent=2))
                 if 'parents' in r:
                     parent_id = r['parents'][0]
                     pathes.append(r['name'])
                 else:
+                    # team drive 예외처리
+                    if r['name'] == 'Drive' and len(r['id']) < 32: break
                     pathes.append(r['name'])
                     break
     
@@ -353,15 +356,17 @@ class LibGdrive(object):
             parent_id = folder_id
             while True:
                 if service != None:
-                    r = service.files().get(fileId=parent_id, fields='id, name, mimeType, parents').execute()
+                    r = service.files().get(fileId=parent_id, supportsAllDrive=True, fields='id, name, mimeType, parents').execute()
                 else:
-                    r = cls.sa_service.files().get(fileId=parent_id, fields='id, name, mimeType, parents').execute()
+                    r = cls.sa_service.files().get(fileId=parent_id, supportsAllDrive=True, fields='id, name, mimeType, parents').execute()
                 if 'parents' in r:
                     logger.debug('fodler_id: %s, parent_id: %s', folder_id, parent_id)
                     parent_id = r['parents'][0]
                     if parent_id != folder_id:
                         pathes.append(r['name'])
                 else:
+                    # team drive 예외처리
+                    if r['name'] == 'Drive' and len(r['id']) < 32: break
                     pathes.append(r['name'])
                     break
     
@@ -393,12 +398,14 @@ class LibGdrive(object):
                     r = service.files().list(q=query,
                             spaces='drive',
                             pageSize=1000,
+                            supportsAllDrives=True,
                             fields='nextPageToken, files(id, name, parents, modifiedTime)',
                             pageToken=page_token).execute()
                 else:
                     r = cls.sa_service.files().list(q=query,
                             spaces='drive',
                             pageSize=1000,
+                            supportsAllDrives=True,
                             fields='nextPageToken, files(id, name, parents, modifiedTime)',
                             pageToken=page_token).execute()
         
@@ -433,31 +440,26 @@ class LibGdrive(object):
         return target_folder_list
 
     @classmethod
-    def get_children(cls, target_folder_id, fields=None, service=None, time_after=None):
+    def get_children(cls, target_folder_id, fields=None, service=None, time_after=None, order_by='createdTime desc'):
         children = []
         try:
+            svc = service if service != None else cls.sa_service
             page_token = None
             if time_after == None:
                 query = "'{}' in parents".format(target_folder_id)
             else:
                 query = "modifiedTime >= '{}' and '{}' in parents".format(cls.get_gdrive_time_str(_datetime=time_after), target_folder_id)
-            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
             if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
             while True:
                 try:
-                    if service != None:
-                        r = service.files().list(q=query, 
-                                spaces='drive',
-                                pageSize=1000,
-                                fields=str_fields,
-                                pageToken=page_token).execute()
-                    else:
-                        r = cls.sa_service.files().list(q=query, 
-                                spaces='drive',
-                                pageSize=1000,
-                                fields=str_fields,
-                                pageToken=page_token).execute()
-                
+                    r = svc.files().list(q=query, 
+                            spaces='drive', 
+                            pageSize=1000, 
+                            supportsAllDrives=True,
+                            fields=str_fields, 
+                            orderBy=order_by,
+                            pageToken=page_token).execute()
                     page_token = r.get('nextPageToken', None)
                     for child in r.get('files', []): children.append(child)
                     if page_token == None: break
@@ -493,12 +495,14 @@ class LibGdrive(object):
                         r = service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
+                                supportsAllDrives=True,
                                 fields='nextPageToken, files(id, name, parents, mimeType, trashed)',
                                 pageToken=page_token).execute()
                     else:
                         r = cls.sa_service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
+                                supportsAllDrives=True,
                                 fields='nextPageToken, files(id, name, parents, mimeType, trashed)',
                                 pageToken=page_token).execute()
                 
@@ -586,12 +590,14 @@ class LibGdrive(object):
                         r = service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
+                                supportsAllDrives=True,
                                 fields='nextPageToken, files(id, name, parents, mimeType)',
                                 pageToken=page_token).execute()
                     else:
                         r = cls.sa_service.files().list(q=query, 
                                 spaces='drive',
                                 pageSize=1000,
+                                supportsAllDrives=True,
                                 fields='nextPageToken, files(id, name, parents, mimeType)',
                                 pageToken=page_token).execute()
 
@@ -925,5 +931,3 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return None
-
-
