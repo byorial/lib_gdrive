@@ -356,9 +356,9 @@ class LibGdrive(object):
             parent_id = folder_id
             while True:
                 if service != None:
-                    r = service.files().get(fileId=parent_id, supportsAllDrive=True, fields='id, name, mimeType, parents').execute()
+                    r = service.files().get(fileId=parent_id, supportsAllDrives=True, fields='id, name, mimeType, parents').execute()
                 else:
-                    r = cls.sa_service.files().get(fileId=parent_id, supportsAllDrive=True, fields='id, name, mimeType, parents').execute()
+                    r = cls.sa_service.files().get(fileId=parent_id, supportsAllDrives=True, fields='id, name, mimeType, parents').execute()
                 if 'parents' in r:
                     logger.debug('fodler_id: %s, parent_id: %s', folder_id, parent_id)
                     parent_id = r['parents'][0]
