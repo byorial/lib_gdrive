@@ -27,12 +27,6 @@ except ImportError:
     from oauth2client.service_account import ServiceAccountCredentials
 
 try:
-    from googleapiclient.discovery import build
-except ImportError:
-    os.system("{} install googleapiclient".format(app.config['config']['pip']))
-    from googleapiclient.discovery import build
-
-try:
     import pickle
     from googleapiclient.discovery import build
     from google_auth_oauthlib.flow import InstalledAppFlow
