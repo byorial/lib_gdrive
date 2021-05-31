@@ -197,6 +197,7 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return None
+
     @classmethod
     def switch_service_account(cls, service=None):
         while True:
@@ -921,6 +922,24 @@ class LibGdrive(object):
                 if child['trashed'] == False: return False
             return True
 
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
+    def get_access_token_by_remote(cls, remote):
+        try:
+            from google.oauth2 import service_account
+
+            if 'token' in remote:
+                return json.loads(remote['token'])['access_token']
+            path_accounts = remote['service_account_file_path']
+            path_sa_json = os.path.join(path_accounts, random.choice(os.listdir(path_accounts)))
+            logger.debug(f'selected service-account-json: {path_sa_json}')
+            creds = service_account.Credentials.from_service_account_file(path_sa_json, scopes=cls.scope)
+            creds.refresh(Request())
+            return creds.token
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
