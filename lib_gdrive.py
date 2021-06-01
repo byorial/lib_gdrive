@@ -472,6 +472,45 @@ class LibGdrive(object):
             return None
 
     @classmethod
+    def get_children_for_sa(cls, target_folder_id, drive_id, fields=None, service=None, time_after=None, order_by='createdTime desc'):
+        children = []
+        try:
+            svc = service if service != None else cls.sa_service
+            page_token = None
+            if time_after == None:
+                query = "'{}' in parents".format(target_folder_id)
+            else:
+                query = "modifiedTime >= '{}' and '{}' in parents".format(cls.get_gdrive_time_str(_datetime=time_after), target_folder_id)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+            while True:
+                try:
+                    r = svc.files().list(q=query, 
+                            corpora='allDrives',
+                            pageSize=1000, 
+                            includeItemsFromAllDrives=True,
+                            supportsAllDrives=True,
+                            fields=str_fields, 
+                            orderBy=order_by,
+                            pageToken=page_token).execute()
+                    page_token = r.get('nextPageToken', None)
+                    for child in r.get('files', []): children.append(child)
+                    if page_token == None: break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('get_children(%s): %d items found', target_folder_id, len(children))
+            return children
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+
+    @classmethod
     def get_children_folders(cls, target_folder_id, service=None, time_after=None):
         children = []
         try:
