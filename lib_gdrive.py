@@ -55,6 +55,7 @@ logger = P.logger
 
 class LibGdrive(object):
     scope = ['https://www.googleapis.com/auth/drive']
+    scope_readonly = ['https://www.googleapis.com/auth/drive.readonly']
     token_uri = 'https://www.googleapis.com/oauth2/v3/token'
     service     = None
     sa_service  = None
@@ -175,6 +176,8 @@ class LibGdrive(object):
                 os.system("{} install google-oauth".format(app.config['config']['pip']))
                 from google.oauth2.credentials import Credentials as OAuth2Credentials
 
+            logger.debug('auth_by_rclone_remote:{}'.format(remote['client_id']))
+
             # SA 
             if 'service_account_file' in remote:
                 return cls.sa_authorize(remote['service_account_file_path'], return_service=True)
@@ -183,13 +186,20 @@ class LibGdrive(object):
             client_secret = remote['client_secret']
             token = remote['token']['access_token']
             refresh_token = remote['token']['refresh_token']
+            scopes = cls.scope_readonly if remote['scope'] == 'drive.readonly' else cls.scope
             creds = OAuth2Credentials(token,
                     refresh_token=refresh_token,
                     id_token=None,
                     token_uri=cls.token_uri,
                     client_id=client_id,
                     client_secret=client_secret,
-                    scopes=cls.scope)
+                    scopes=scopes)
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    logger.debug('credential expired. refresh')
+                    creds.refresh(Request())
+
             service = build('drive', 'v3', credentials=creds)
             return service
 
