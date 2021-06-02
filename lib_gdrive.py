@@ -181,9 +181,8 @@ class LibGdrive(object):
 
             client_id = remote['client_id']
             client_secret = remote['client_secret']
-            rjson = json.loads(remote['token'])
-            token = rjson['access_token']
-            refresh_token = rjson['refresh_token']
+            token = remote['token']['access_token']
+            refresh_token = remote['token']['refresh_token']
             creds = OAuth2Credentials(token,
                     refresh_token=refresh_token,
                     id_token=None,
@@ -782,6 +781,24 @@ class LibGdrive(object):
                         fields='id,parents').execute()
             ret['ret'] = 'success'
             data = {'folder_id':res.get('id'), 'parent_folder_id':res.get('parents')[0]}
+            ret['data'] = data
+            return ret
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def rename(cls, file_id, new_filename, service=None):
+        try:
+            ret = {}
+            body = {'name':new_filename}
+            if service == None: service = cls.service
+            res = service.files().update(fileId=file_id, 
+                    body=body,
+                    fields='id,name').execute()
+            ret['ret'] = 'success'
+            data = {'fileid':res.get('id'), 'name':res.get('name')}
             ret['data'] = data
             return ret
         except Exception as e:
