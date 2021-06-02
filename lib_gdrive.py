@@ -84,6 +84,7 @@ class LibGdrive(object):
     @classmethod
     def user_authorize(cls, token='token.pickle',):
         try:
+            creds = None
             if os.path.exists(token):
                 with open(token, 'rb') as tokenfile:
                     creds = pickle.load(tokenfile)
@@ -970,9 +971,27 @@ class LibGdrive(object):
     def get_access_token_by_remote(cls, remote):
         try:
             from google.oauth2 import service_account
+            from google.oauth2.credentials import Credentials as OAuth2Credentials
 
             if 'token' in remote:
-                return json.loads(remote['token'])['access_token']
+                expiry = datetime.strptime(remote['token']['expiry'].split('.')[0], '%Y-%m-%dT%H:%M:%S')
+                if datetime.now() > expiry:
+                    logger.debug('access token expired')
+                    client_id = remote['client_id']
+                    client_secret = remote['client_secret']
+                    token = remote['token']['access_token']
+                    refresh_token = remote['token']['refresh_token']
+                    creds = OAuth2Credentials(token,
+                            refresh_token=refresh_token,
+                            id_token=None,
+                            token_uri=cls.token_uri,
+                            client_id=client_id,
+                            client_secret=client_secret,
+                            scopes=cls.scope)
+                    creds.refresh(Request())
+                    return creds.token
+                return remote['token']['access_token']
+
             path_accounts = remote['service_account_file_path']
             path_sa_json = os.path.join(path_accounts, random.choice(os.listdir(path_accounts)))
             logger.debug(f'selected service-account-json: {path_sa_json}')
