@@ -176,11 +176,14 @@ class LibGdrive(object):
                 os.system("{} install google-oauth".format(app.config['config']['pip']))
                 from google.oauth2.credentials import Credentials as OAuth2Credentials
 
-            logger.debug('auth_by_rclone_remote:{}'.format(remote['client_id']))
-
             # SA 
             if 'service_account_file' in remote:
                 return cls.sa_authorize(remote['service_account_file_path'], return_service=True)
+
+            for key in ['client_id', 'client_secret']:
+                if key not in remote:
+                    logger.error(f'{key} is required: check rclone.conf')
+                    return None
 
             client_id = remote['client_id']
             client_secret = remote['client_secret']
@@ -758,13 +761,14 @@ class LibGdrive(object):
             return {'ret':'error', 'msg':str(e)}
 
     @classmethod
-    def delete_file(cls, file_id, service=None):
+    def delete_file(cls, file_id, service=None, trash=True):
         try:
             ret = {}
-            data = []
-            if service != None: service.files().delete(fileId=file_id).execute()
-            else: cls.service.files().delete(fileId=file_id).execute()
+            svc = cls.service if service == None else service
+            if trash: data = svc.files().trash(fileId=file_id).execute()
+            else: data = svc.files().delete(fileId=file_id).execute()
             ret['ret'] = 'success'
+            ret['data'] = data
             return ret
         except Exception as e:
             logger.error('Exception:%s', e)
