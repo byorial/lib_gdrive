@@ -94,17 +94,17 @@ class LibGdrive(object):
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 else: return False
-    
+
                 with open(token, 'wb') as t:
                     pickle.dump(creds, t)
-    
+
             cls.service = build('drive', 'v3', credentials=creds)
             return True
         except Exception as e: 
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return False
-    
+
     @classmethod
     def sa_authorize(cls, json_path, return_service=False):
         if not os.path.exists(json_path):
@@ -333,7 +333,7 @@ class LibGdrive(object):
                 else:
                     r = cls.sa_service.files().get(fileId=parent_id, supportsAllDrives=True,
                             fields='id, name, mimeType, parents').execute()
-                
+
                 #logger.debug(json.dumps(r, indent=2))
                 if 'parents' in r:
                     parent_id = r['parents'][0]
@@ -343,7 +343,7 @@ class LibGdrive(object):
                     if r['name'] == 'Drive' and len(r['id']) < 32: break
                     pathes.append(r['name'])
                     break
-    
+
             pathes.append('')
             pathes.reverse()
             full_path = u'/'.join(pathes)
@@ -744,9 +744,11 @@ class LibGdrive(object):
             parent_id = parent_folder_id
             meta = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
             if service != None:
-                newfolder = service.files().create(body=meta, fields='id').execute()
+                newfolder = service.files().create(body=meta, fields='id', supportsAllDrives=True).execute()
             else:
-                newfolder = cls.service.files().create(body=meta, fields='id').execute()
+                newfolder = cls.service.files().create(body=meta, fields='id', supportsAllDrives=True).execute()
+
+            #logger.debug(newfolder)
             data = {'name':name, 'folder_id':newfolder.get('id'), 'parent_folder_id':parent_id}
             ret['ret'] = 'success'
             ret['data'] = data
@@ -783,11 +785,13 @@ class LibGdrive(object):
                         addParents=new_parent_id, 
                         removeParents=old_parent_id, 
                         body=body,
+                        supportsAllDrives=True,
                         fields='id,parents').execute()
             else:
                 res = service.files().update(fileId=file_id, 
                         addParents=new_parent_id, 
                         removeParents=old_parent_id, 
+                        supportsAllDrives=True,
                         fields='id,parents').execute()
             ret['ret'] = 'success'
             data = {'folder_id':res.get('id'), 'parent_folder_id':res.get('parents')[0]}
