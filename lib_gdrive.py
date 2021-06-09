@@ -242,10 +242,10 @@ class LibGdrive(object):
             }
             if service != None:
                 shortcut = service.files().create(body=shortcut_metadata, 
-                        fields='id,shortcutDetails').execute()
+                        fields='id,shortcutDetails', supportsAllDrives=True).execute()
             else:
                 shortcut = cls.sa_service.files().create(body=shortcut_metadata, 
-                        fields='id,shortcutDetails').execute()
+                        fields='id,shortcutDetails', supportsAllDrives=True).execute()
 
             #logger.debug(json.dumps(shortcut, indent=2))
             logger.debug('create_shortcut: shortcut_created: %s', shortcut_name)
