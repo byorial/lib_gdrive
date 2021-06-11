@@ -721,7 +721,7 @@ class LibGdrive(object):
             return {'ret':'error', 'msg':str(e)}
 
     @classmethod
-    def delete_file(cls, file_id, service=None, trash=True):
+    def delete_file(cls, file_id, service=None, trash=False):
         try:
             ret = {}
             svc = cls.service if service == None else service
