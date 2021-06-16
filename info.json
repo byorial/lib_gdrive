@@ -1,1 +1,10 @@
-{"version": "0.1.0.0", "type": "library", "name": "lib_gdrive", "category_name": "library", "developer": "orial", "description": "gdrive api library", "home": "https://github.com/byorial/lib_gdrive", "more": ""}
+{
+    "version": "0.1.0.0",
+    "type": "library",
+    "name": "lib_gdrive",
+    "category_name": "library",
+    "developer": "orial",
+    "description": "gdrive api library",
+    "home": "https://github.com/byorial/lib_gdrive",
+    "more": ""
+}

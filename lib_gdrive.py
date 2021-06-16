@@ -55,7 +55,6 @@ logger = P.logger
 
 class LibGdrive(object):
     scope = ['https://www.googleapis.com/auth/drive']
-    scope_readonly = ['https://www.googleapis.com/auth/drive.readonly']
     token_uri = 'https://www.googleapis.com/oauth2/v3/token'
     service     = None
     sa_service  = None
@@ -189,7 +188,8 @@ class LibGdrive(object):
             client_secret = remote['client_secret']
             token = remote['token']['access_token']
             refresh_token = remote['token']['refresh_token']
-            scopes = cls.scope_readonly if remote['scope'] == 'drive.readonly' else cls.scope
+
+            scopes = ['https://www.googleapis.com/auth/{}'.format(remote['scope'])]
             creds = OAuth2Credentials(token,
                     refresh_token=refresh_token,
                     id_token=None,
