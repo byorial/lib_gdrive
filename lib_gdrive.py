@@ -190,10 +190,24 @@ class LibGdrive(object):
             return None
 
     @classmethod
-    def sa_get_token_for_gds(cls, sa_path, scopes, impersonate):
+    def get_credentials_for_gds(cls, sa_info, scopes, impersonate):
         try:
             creds = None
-            creds = ServiceAccountCredentials.from_json_keyfile_name(sa_path, scopes).create_delegated(impersonate)
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(sa_info, scopes).create_delegated(impersonate)
+            if creds.access_token == '' or creds.access_token == None or creds.access_token_expired:
+                logger.info('try to access_token refresh')
+                creds.refresh(Http())
+            return creds
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
+    def sa_get_token_for_gds(cls, sa_info, scopes, impersonate):
+        try:
+            creds = None
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(sa_info, scopes).create_delegated(impersonate)
             if creds.access_token == '' or creds.access_token == None or creds.access_token_expired:
                 logger.info('try to access_token refresh')
                 creds.refresh(Http())
