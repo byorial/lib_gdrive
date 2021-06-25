@@ -148,6 +148,47 @@ class LibGdrive(object):
             if return_service: return None
             else: return False
 
+ 
+    @classmethod
+    def sa_authorize_by_info(cls, json_data, return_service=False, scopes=None, impersonate=None):
+        scope = scopes if scopes != None else cls.scope
+        try:
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(json_data, scope)
+            if impersonate != None:
+                delegated_credentials = credentials.create_delegated(impersonate)
+                if return_service:
+                    service = build('drive', 'v3', credentials=delegated_credentials)
+                    return service
+                else:
+                    cls.sa_service = build('drive', 'v3', http=delegated_credentials)
+                    return True
+            else:
+                if return_service:
+                    service = build('drive', 'v3', credentials=credentials)
+                    return service
+                else:
+                    cls.sa_service = build('drive', 'v3', credentials=credentials)
+                    return True
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            if return_service: return None
+            else: return False
+
+    @classmethod
+    def get_access_token_for_gds(cls, json_data, scopes, impersonate):
+        try:
+            creds = None
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(json_data, scopes).create_delegated(impersonate)
+            if creds.access_token == '' or creds.access_token == None or creds.access_token_expired:
+                logger.info('try to access_token refresh')
+                creds.refresh(Http())
+            return creds.access_token
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
     @classmethod
     def sa_get_token_for_gds(cls, sa_path, scopes, impersonate):
         try:
