@@ -11,6 +11,7 @@ import requests
 from flask import request, render_template, jsonify, redirect
 from sqlalchemy import or_, and_, func, not_, desc
 import random
+from httplib2 import Http
 
 # sjva 공용
 from framework import db, scheduler, path_data, socketio, SystemModelSetting, app
@@ -23,7 +24,7 @@ from tool_expand import ToolExpandFileProcess
 try:
     from oauth2client.service_account import ServiceAccountCredentials
 except ImportError:
-    os.system("{} install oauth2client".format(app.config['config']['pip']))
+    os.system("{} install --upgrade oauth2client".format(app.config['config']['pip']))
     from oauth2client.service_account import ServiceAccountCredentials
 
 try:
@@ -105,7 +106,7 @@ class LibGdrive(object):
             return False
 
     @classmethod
-    def sa_authorize(cls, json_path, return_service=False):
+    def sa_authorize(cls, json_path, return_service=False, scopes=None, impersonate=None):
         if not os.path.exists(json_path):
             logger.error('can not recognize gdrive_auth_path(%s)', json_path)
             data = {'type':'warning', 'msg':'인증파일(.json) 경로를 확인해주세요.'}
@@ -122,20 +123,44 @@ class LibGdrive(object):
             cls.json_list = [json_path]
 
         logger.debug('json_file: %s', json_file)
+        scope = scopes if scopes != None else cls.scope
 
         try:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, cls.scope)
-            if return_service:
-                service = build('drive', 'v3', credentials=credentials)
-                return service
+            credentials = ServiceAccountCredentials.from_json_keyfile_name(json_file, scope)
+            if impersonate != None:
+                delegated_credentials = credentials.create_delegated(impersonate)
+                if return_service:
+                    service = build('drive', 'v3', credentials=delegated_credentials)
+                    return service
+                else:
+                    cls.sa_service = build('drive', 'v3', http=delegated_credentials)
+                    return True
             else:
-                cls.sa_service = build('drive', 'v3', credentials=credentials)
-                return True
+                if return_service:
+                    service = build('drive', 'v3', credentials=credentials)
+                    return service
+                else:
+                    cls.sa_service = build('drive', 'v3', credentials=credentials)
+                    return True
         except Exception as e: 
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             if return_service: return None
             else: return False
+
+    @classmethod
+    def sa_get_token_for_gds(cls, sa_path, scopes, impersonate):
+        try:
+            creds = None
+            creds = ServiceAccountCredentials.from_json_keyfile_name(sa_path, scopes).create_delegated(impersonate)
+            if creds.access_token == '' or creds.access_token == None or creds.access_token_expired:
+                logger.info('try to access_token refresh')
+                creds.refresh(Http())
+            return creds.access_token
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
 
     @classmethod
     def sa_authorize_for_multiple_connection(cls, json_path, max_connection):
@@ -467,7 +492,7 @@ class LibGdrive(object):
             return None
 
     @classmethod
-    def get_children_for_sa(cls, target_folder_id, drive_id, fields=None, service=None, time_after=None, order_by='createdTime desc'):
+    def get_children_for_sa(cls, target_folder_id, fields=None, service=None, time_after=None, order_by='createdTime desc'):
         children = []
         try:
             svc = service if service != None else cls.sa_service
@@ -955,8 +980,11 @@ class LibGdrive(object):
                     return creds.token
                 return remote['token']['access_token']
 
-            path_accounts = remote['service_account_file_path']
-            path_sa_json = os.path.join(path_accounts, random.choice(os.listdir(path_accounts)))
+            if 'service_account_file_path' in remote:
+                path_accounts = remote['service_account_file_path']
+                path_sa_json = os.path.join(path_accounts, random.choice(os.listdir(path_accounts)))
+            else:
+                path_sa_json = remote['service_account_file']
             logger.debug(f'selected service-account-json: {path_sa_json}')
             creds = service_account.Credentials.from_service_account_file(path_sa_json, scopes=cls.scope)
             creds.refresh(Request())
