@@ -176,6 +176,15 @@ class LibGdrive(object):
             else: return False
 
     @classmethod
+    def sa_auth_by_creds(cls, creds):
+        try:
+            return build('drive', 'v3', credentials=creds)
+        except Exception as e: 
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
     def get_access_token_for_gds(cls, json_data, scopes, impersonate):
         try:
             creds = None
@@ -658,6 +667,51 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
 
+    @classmethod
+    def get_children_with_mtypes(cls, target_folder_id, mtypes=None, fields=None, service=None, time_after=None, order_by='createdTime desc'):
+        children = []
+        try:
+            svc = service if service != None else cls.sa_service
+            page_token = None
+            if time_after == None:
+                query = "'{}' in parents".format(target_folder_id)
+            else:
+                query = "modifiedTime >= '{}' and '{}' in parents".format(cls.get_gdrive_time_str(_datetime=time_after), target_folder_id)
+            
+            if mtypes != None:
+                if type(mtypes) == list and len(mtypes) > 0:
+                    query_mtypes = " and (mimeType contains '" + "' or mimeType contains '".join(mtypes)+"')"
+                    query = query + query_mtypes
+                elif type(mtypes) == str:
+                    query_mtypes = " and mimeType contains '{}'".format(mtypes)
+                    query = query + query_mtypes
+
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+            while True:
+                try:
+                    r = svc.files().list(q=query, 
+                            #spaces='drive', 
+                            pageSize=1000, 
+                            supportsAllDrives=True, includeTeamDriveItems=True,
+                            fields=str_fields, 
+                            orderBy=order_by,
+                            pageToken=page_token).execute()
+                    page_token = r.get('nextPageToken', None)
+                    for child in r.get('files', []): children.append(child)
+                    if page_token == None: break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('get_children(%s): %d items found', target_folder_id, len(children))
+            return children
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
 
     @classmethod
     def get_gdrive_time_str(cls, _datetime = None, _delta_min = None):
@@ -1069,13 +1123,14 @@ class LibGdrive(object):
             return ret
 
     @classmethod
-    def get_changes_by_remote(cls, remote, page_token=None, fields=None):
+    def get_changes_by_remote(cls, remote, page_token=None, fields=None, service=None):
         try:
             ret = {}
-            service = cls.auth_by_rclone_remote(remote)
             if service == None:
-                logger.error('failed to auth by remote')
-                return {'ret':'exception', 'data':'failed to auth by remote'}
+                service = cls.auth_by_rclone_remote(remote)
+                if service == None:
+                    logger.error('failed to auth by remote')
+                    return {'ret':'exception', 'data':'failed to auth by remote'}
 
             drive_id = None
             if 'team_drive' in remote: drive_id = remote['team_drive'].strip()
