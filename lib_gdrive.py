@@ -714,11 +714,64 @@ class LibGdrive(object):
             return None
 
     @classmethod
+    def get_children2(cls, parents, mtypes=None, fields=None, service=None, time_after=None, order_by='createdTime desc', limit=100):
+        children = []
+        try:
+            svc = service if service != None else cls.sa_service
+            page_token = None
+            query = ''; query_mtime = ''; query_mtypes = ''
+            if time_after != None: query_mtime = " and modifiedTime >= '{}'".format(cls.get_gdrive_time_str(_datetime=time_after))
+            #query_parents = " and (parents in '" + "' or parents in '".join(parents)+"')"
+            if mtypes != None:
+                if type(mtypes) == list and len(mtypes) > 0:
+                    query_mtypes = " and (mimeType contains '" + "' or mimeType contains '".join(mtypes)+"')"
+                elif type(mtypes) == str:
+                    query_mtypes = " and mimeType contains '{}'".format(mtypes)
+
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
+
+            pos = 0
+            while pos < len(parents):
+                #query_parents = "(parents in '" + "' or parents in '".join(parents[pos:pos+limit])+"')"
+                query_parents = "('" + "' in parents or '".join(parents[pos:pos+limit])+"' in parents)"
+                logger.debug(f'query_parents: ({query_parents}')
+                query = query_parents + query_mtime + query_mtypes
+                #logger.debug(f'{pos}:{limit}:query:[{query}]')
+                if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+                while True:
+                    try:
+                        r = svc.files().list(q=query, 
+                                corpora='allDrives',
+                                pageSize=1000, 
+                                supportsAllDrives=True, includeItemsFromAllDrives=True,
+                                fields=str_fields, 
+                                orderBy=order_by,
+                                pageToken=page_token).execute()
+                        page_token = r.get('nextPageToken', None)
+                        for child in r.get('files', []): children.append(child)
+                        if page_token == None: break
+                    except Exception as e:
+                        logger.error('Exception:%s', e)
+                        logger.error(traceback.format_exc())
+                        return None
+                pos = pos + limit
+
+            logger.debug('get_children2: %d items found', len(children))
+            return children
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
     def get_gdrive_time_str(cls, _datetime = None, _delta_min = None):
+        utc_delta = datetime.utcnow() - datetime.now()
         if _datetime == None: _date_time = datetime.now()
         if _delta_min == None: _delta_min = 0
-        tt  = _datetime - timedelta(minutes=_delta_min)
-        return tt.strftime('%Y-%m-%dT%H:%M:%S+09:00')
+        tt  = _datetime + utc_delta - timedelta(minutes=_delta_min)
+        return tt.isoformat('T') + 'Z'
+        #return tt.strftime('%Y-%m-%dT%H:%M:%S+09:00')
 
     @classmethod
     def get_children_video_files(cls, parent_folder_id, time_after=None, service=None):
