@@ -734,7 +734,7 @@ class LibGdrive(object):
             while pos < len(parents):
                 #query_parents = "(parents in '" + "' or parents in '".join(parents[pos:pos+limit])+"')"
                 query_parents = "('" + "' in parents or '".join(parents[pos:pos+limit])+"' in parents)"
-                logger.debug(f'query_parents: ({query_parents}')
+                #logger.debug(f'query_parents: ({query_parents}')
                 query = query_parents + query_mtime + query_mtypes
                 #logger.debug(f'{pos}:{limit}:query:[{query}]')
                 if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
