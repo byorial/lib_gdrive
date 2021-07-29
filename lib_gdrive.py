@@ -971,7 +971,7 @@ class LibGdrive(object):
     def copy_file(cls, file_id, name, new_parent_id, service=None):
         try:
             ret = {}
-            body = {'name':name, parents:[new_parent_id]}
+            body = {'name':name, 'parents':[new_parent_id]}
             svc = service if service != None else cls.service
             res = svc.files().copy(fileId=file_id, body=body,
                     supportsAllDrives=True,
