@@ -968,6 +968,25 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
+    def copy_file(cls, file_id, name, new_parent_id, service=None):
+        try:
+            ret = {}
+            body = {'name':name, parents:[new_parent_id]}
+            svc = service if service != None else cls.service
+            res = svc.files().copy(fileId=file_id, body=body,
+                    supportsAllDrives=True,
+                    fields='id,parents').execute()
+            ret['ret'] = 'success'
+            data = {'folder_id':res.get('id'), 'parent_folder_id':res.get('parents')[0]}
+            ret['data'] = data
+            return ret
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+
+    @classmethod
     def search_teamdrive_by_keyword(cls, keyword, teamdrive_id, fields=None, service=None):
         try: 
             result = []
