@@ -256,7 +256,7 @@ class LibGdrive(object):
             return None
 
     @classmethod
-    def auth_by_rclone_remote(cls, remote):
+    def auth_by_rclone_remote(cls, remote, set_service=False):
         try:
             try:
                 from google.oauth2.credentials import Credentials as OAuth2Credentials
@@ -293,6 +293,7 @@ class LibGdrive(object):
                     creds.refresh(Request())
 
             service = build('drive', 'v3', credentials=creds)
+            if set_service: cls.service = service
             return service
 
         except Exception as e: 
@@ -633,6 +634,48 @@ class LibGdrive(object):
             logger.error(traceback.format_exc())
 
     @classmethod
+    def get_fileid_from_path(cls, root_folder_id, full_path, service=None):
+        try:
+            logger.debug(f'get_fileid: req {root_folder_id}, {full_path}')
+            pathes = list(filter(None, full_path.split('/')))
+            parent_id = root_folder_id
+            file_id = None
+            for dname in pathes:
+                children = []
+                query = f"name='{dname}' and '{parent_id}' in parents"
+                #logger.debug(f'query: {query}')
+
+                svc = service if service != None else cls.sa_service
+                try:
+                    r = svc.files().list(q=query, 
+                            spaces='drive',
+                            supportsAllDrives=True, includeTeamDriveItems=True,
+                            fields='files(id, name, parents, mimeType, trashed, shortcutDetails)').execute()
+                    child = r.get('files', [])[0]
+                    #logger.debug(f'ret={r}')
+                    if dname == pathes[-1]: # 경로상 마지막 위치의 경우
+                        file_id = child['id']
+                        break
+
+                    if child['mimeType'] == 'application/vnd.google-apps.shortcut':
+                        parent_id = child['shortcutDetails']['targetId']
+                    else: 
+                        parent_id = child['id']
+
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+    
+            logger.debug(f'get_fileid: ret {full_path}, {file_id}')
+            return file_id
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return None
+
+    @classmethod
     def get_children_folders_with_parents(cls, parents, service=None):
         children = []
         try:
@@ -648,6 +691,7 @@ class LibGdrive(object):
                             spaces='drive',
                             corpora='allDrives',
                             includeItemsFromAllDrives=True,
+                            supportsAllDrives=True, includeTeamDriveItems=True,
                             pageSize=1000,
                             fields='nextPageToken, files(id, name, parents, mimeType)',
                             pageToken=page_token).execute()
