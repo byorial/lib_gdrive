@@ -956,8 +956,10 @@ class LibGdrive(object):
         try:
             ret = {}
             svc = cls.service if service == None else service
-            if trash: data = svc.files().trash(fileId=file_id).execute()
-            else: data = svc.files().delete(fileId=file_id).execute()
+            if trash:
+                body = {'trashed': True}
+                data = svc.files().update(fileId=file_id,body=body,supportsAllDrives=True).execute()
+            else: data = svc.files().delete(fileId=file_id,supportsAllDrives=True).execute()
             ret['ret'] = 'success'
             ret['data'] = data
             return ret
@@ -1066,6 +1068,44 @@ class LibGdrive(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
             return {'ret':'error:{}'.format(str(e))}
+
+    @classmethod
+    def search_mydrive_by_owner(cls, owner_email, reverse=False, mime_type='all',fields=None, service=None):
+        try: 
+            result = []
+            page_token = None
+            query = u"'{}' in owners".format(owner_email)
+            if mime_type != 'all': query = query + ' and mimeType="{}"'.format(mime_type)
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed, owners, size)'
+            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+            svc = service if service != None else cls.sa_service
+            while True:
+                try:
+                    r = svc.files().list(q=query, 
+                            fields=str_fields,
+                            corpora='allDrives', 
+                            pageSize=100,
+                            includeTeamDriveItems=True, 
+                            supportsAllDrives=True, 
+                            supportsTeamDrives=True, 
+                            pageToken=page_token).execute()
+
+                    page_token = r.get('nextPageToken', None)
+                    for item in r.get('files', []): result.append(item)
+                    if page_token == None: break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('search_mydrive_by_owner: %d items found', len(result))
+            return {'ret':'success', 'data':result}
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
 
     @classmethod
     def search_teamdrive_by_names(cls, names, teamdrive_id, mime_type='all',fields=None, service=None):
