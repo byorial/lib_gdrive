@@ -1070,29 +1070,43 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
-    def search_mydrive_by_owner(cls, owner_email, reverse=False, mime_type='all',fields=None, service=None):
+    def search_mydrive_by_owner(cls, owner_email, mime_type='all', reverse=False, fields=None, service=None):
         try: 
             result = []
             page_token = None
+
+            #if reverse: query = u"not '{}' in owners".format(owner_email)
             query = u"'{}' in owners".format(owner_email)
-            if mime_type != 'all': query = query + ' and mimeType="{}"'.format(mime_type)
-            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed, owners, size)'
-            if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
+            if mime_type != 'all':
+                if reverse: query = query + ' and mimeType!="{}"'.format(mime_type)
+                else: query = query + ' and mimeType="{}"'.format(mime_type)
+            str_fields = 'incompleteSearch, nextPageToken, files(id, name, mimeType, parents, trashed, owners, size)'
+            if fields != None: str_fields = 'incompleteSearch, nextPageToken, files(' + ','.join(fields) + ')'
             svc = service if service != None else cls.sa_service
             while True:
                 try:
+                    """
+                    r = svc.files().list(q=query, 
+                            fields=str_fields,
+                            corpora='user',
+                            spaces='drive', 
+                            pageSize=1000,
+                            pageToken=page_token).execute()
+
+                    """
                     r = svc.files().list(q=query, 
                             fields=str_fields,
                             corpora='allDrives', 
                             pageSize=100,
+                            includeItemsFromAllDrives=True, 
                             includeTeamDriveItems=True, 
                             supportsAllDrives=True, 
-                            supportsTeamDrives=True, 
                             pageToken=page_token).execute()
-
                     page_token = r.get('nextPageToken', None)
+                    logger.debug(f'{r.get("files",[])},{page_token},{r.get("incompleteSearch",False)}')
                     for item in r.get('files', []): result.append(item)
                     if page_token == None: break
+                    if not r.get('incompleteSearch', False): break
                 except Exception as e:
                     logger.error('Exception:%s', e)
                     logger.error(traceback.format_exc())
