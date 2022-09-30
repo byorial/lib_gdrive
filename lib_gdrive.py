@@ -1070,6 +1070,48 @@ class LibGdrive(object):
             return {'ret':'error:{}'.format(str(e))}
 
     @classmethod
+    def search_mydrive_by_name_like(cls, name, mime_type='all', reverse=False, fields=None, trashed=False, service=None):
+        try: 
+            result = []
+            page_token = None
+
+            query = "name contains '{}'".format(name)
+            if mime_type != 'all':
+                if reverse: query = query + ' and mimeType!="{}"'.format(mime_type)
+                else: query = query + ' and mimeType="{}"'.format(mime_type)
+            query = query + f' and trashed = {trashed}'
+            logger.debug(f'query={query}')
+            str_fields = 'incompleteSearch, nextPageToken, files(id, name, mimeType, parents, trashed)'
+            if fields != None: str_fields = 'incompleteSearch, nextPageToken, files(' + ','.join(fields) + ')'
+            svc = service if service != None else cls.sa_service
+            while True:
+                try:
+                    r = svc.files().list(q=query, 
+                            fields=str_fields,
+                            corpora='user', 
+                            pageSize=100,
+                            pageToken=page_token).execute()
+                    page_token = r.get('nextPageToken', None)
+                    logger.debug(f'{r.get("files",[])},{page_token},{r.get("incompleteSearch",False)}')
+                    for item in r.get('files', []): result.append(item)
+                    if page_token == None: break
+                    if not r.get('incompleteSearch', False): break
+                except Exception as e:
+                    logger.error('Exception:%s', e)
+                    logger.error(traceback.format_exc())
+                    return None
+
+            logger.debug('search_mydrive_by_name_like: %d items found', len(result))
+            return {'ret':'success', 'data':result}
+
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
+
+
+    @classmethod
     def search_mydrive_by_owner(cls, owner_email, mime_type='all', reverse=False, fields=None, service=None):
         try: 
             result = []
@@ -1122,14 +1164,14 @@ class LibGdrive(object):
 
 
     @classmethod
-    def search_teamdrive_by_names(cls, names, teamdrive_id, mime_type='all',fields=None, service=None):
+    def search_teamdrive_by_name_like(cls, name, teamdrive_id, mime_type='all',fields=None, trashed=False, service=None):
         try: 
             result = []
             page_token = None
-            if len(names) > 1: query = u'name="'+u'" or name="'.join(names) + u'"'
-            else: query = u'name = "{}"'.format(names[0])
+            query = u'name contains "{}"'.format(name)
             if mime_type != 'all': query = query + ' and mimeType="{}"'.format(mime_type)
-            str_fields = 'nextPageToken, files(id, name, mimeType, parents)'
+            query = query + f' and trashed = {trashed}'
+            str_fields = 'nextPageToken, files(id, name, mimeType, parents, trashed)'
             if fields != None: str_fields = 'nextPageToken, files(' + ','.join(fields) + ')'
             svc = service if service != None else cls.sa_service
             while True:
