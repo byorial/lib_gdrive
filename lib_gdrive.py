@@ -1031,6 +1031,30 @@ class LibGdrive(object):
             logger.error(traceback.format_exc())
             return {'ret':'error:{}'.format(str(e))}
 
+    @classmethod
+    def copy_folder(cls, folder_id, name, new_parent_id, service=None):
+        try:
+            created_ids = []
+            ret = cls.create_sub_folder(name, new_parent_id, service=service)
+            sub_folder = ret['data']
+            sub_folder_id = sub_folder['folder_id']
+            created_ids.append(sub_folder_id)
+
+            files = cls.get_children(folder_id, service=service)
+            for f in files:
+                if f['mimeType'] == 'application/vnd.google-apps.folder':
+                    ret = cls.copy_folder(f['id'], f['name'], sub_folder_id, service=service)
+                    if ret['ret'] == 'success': created_ids.append(ret['data'])
+                else:
+                    ret = cls.copy_file(f['id'], f['name'], sub_folder_id, service=service)
+                    if ret['ret'] == 'success': created_ids.append(ret['data']['folder_id'])
+
+            return {'ret':ret['ret'], 'data':created_ids}
+        except Exception as e:
+            logger.error('Exception:%s', e)
+            logger.error(traceback.format_exc())
+            return {'ret':'error:{}'.format(str(e))}
+
 
     @classmethod
     def search_teamdrive_by_keyword(cls, keyword, teamdrive_id, fields=None, service=None):
